@@ -1,16 +1,25 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
+
+	"github.com/ValeriiaGrebneva/Chirpy/internal/database"
+	"github.com/joho/godotenv"
 )
+
+import _ "github.com/lib/pq"
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	dbQueries      *database.Queries
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -58,7 +67,7 @@ func responseJSON(resp http.ResponseWriter, code int, response interface{}) {
 
 func CleanedBody(msg string) string {
 	splitted := strings.Split(msg, " ")
-	for i, word := range(splitted) {
+	for i, word := range splitted {
 		word = strings.ToLower(word)
 		if word == "kerfuffle" || word == "sharbert" || word == "fornax" {
 			splitted[i] = "****"
@@ -116,10 +125,19 @@ func handlerChirp(resp http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		fmt.Println(err)
+	}
+	dbQueriesNew := database.New(db)
+
 	var counter atomic.Int32
 	counter.Store(0)
 	apiCfg := apiConfig{
 		fileserverHits: counter,
+		dbQueries:      dbQueriesNew,
 	}
 	serveMux := http.NewServeMux()
 	serveMux.HandleFunc("GET /api/healthz", handlerFunc)
@@ -131,6 +149,6 @@ func main() {
 		Addr:    ":8080",
 		Handler: serveMux,
 	}
-	err := serverStruct.ListenAndServe()
+	err = serverStruct.ListenAndServe()
 	fmt.Println(err)
 }
