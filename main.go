@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,8 +9,10 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/ValeriiaGrebneva/Chirpy/internal/database"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 )
 
@@ -20,6 +21,7 @@ import _ "github.com/lib/pq"
 type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
+	platformAPI    string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -44,6 +46,14 @@ func (cfg *apiConfig) handlerNRequests(resp http.ResponseWriter, req *http.Reque
 
 func (cfg *apiConfig) handlerResetRequests(resp http.ResponseWriter, req *http.Request) {
 	cfg.fileserverHits.Store(0)
+	if cfg.platformAPI != "dev" {
+		resp.WriteHeader(403)
+		return
+	}
+	err := cfg.dbQueries.ResetUsers(req.Context())
+	if err != nil {
+		log.Printf("Error resetting users: %s", err)
+	}
 }
 
 func handlerFunc(resp http.ResponseWriter, req *http.Request) {
@@ -124,9 +134,64 @@ func handlerChirp(resp http.ResponseWriter, req *http.Request) {
 	responseJSON(resp, 200, respBody)
 }
 
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
+}
+
+func (cfg *apiConfig) handlerNewUser(resp http.ResponseWriter, req *http.Request) {
+	type parameters struct {
+		// these tags indicate how the keys in the JSON should be mapped to the struct fields
+		// the struct fields must be exported (start with a capital letter) if you want them parsed
+		Email string `json:"email"`
+	}
+
+	decoder := json.NewDecoder(req.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		// an error will be thrown if the JSON is invalid or has the wrong types
+		// any missing fields will simply have their values in the struct set to their zero value
+		log.Printf("Error decoding parameters: %s", err)
+		type returnVals struct {
+			// the key will be the name of struct field unless you give it an explicit JSON tag
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+
+	user, err := cfg.dbQueries.CreateUser(req.Context(), sql.NullString{String: params.Email, Valid: true})
+	if err != nil {
+		log.Printf("Error creating user: %s", err)
+		type returnVals struct {
+			// the key will be the name of struct field unless you give it an explicit JSON tag
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+	respBody := User{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email.String,
+	}
+	responseJSON(resp, 201, respBody)
+}
+
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
+	platform := os.Getenv("PLATFORM")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		fmt.Println(err)
@@ -138,12 +203,14 @@ func main() {
 	apiCfg := apiConfig{
 		fileserverHits: counter,
 		dbQueries:      dbQueriesNew,
+		platformAPI:    platform,
 	}
 	serveMux := http.NewServeMux()
 	serveMux.HandleFunc("GET /api/healthz", handlerFunc)
 	serveMux.HandleFunc("GET /admin/metrics", apiCfg.handlerNRequests)
 	serveMux.HandleFunc("POST /admin/reset", apiCfg.handlerResetRequests)
 	serveMux.HandleFunc("POST /api/validate_chirp", handlerChirp)
+	serveMux.HandleFunc("POST /api/users", apiCfg.handlerNewUser)
 	serveMux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(".")))))
 	serverStruct := http.Server{
 		Addr:    ":8080",
