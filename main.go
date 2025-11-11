@@ -86,11 +86,20 @@ func CleanedBody(msg string) string {
 	return strings.Join(splitted, " ")
 }
 
-func handlerChirp(resp http.ResponseWriter, req *http.Request) {
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    uuid.UUID `json:"user_id"`
+}
+
+func (cfg *apiConfig) handlerChirps(resp http.ResponseWriter, req *http.Request) {
 	type parameters struct {
 		// these tags indicate how the keys in the JSON should be mapped to the struct fields
 		// the struct fields must be exported (start with a capital letter) if you want them parsed
-		Body string `json:"body"`
+		Body    string    `json:"body"`
+		User_id uuid.UUID `json:"user_id"`
 	}
 
 	decoder := json.NewDecoder(req.Body)
@@ -123,15 +132,28 @@ func handlerChirp(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	type returnVals struct {
-		// the key will be the name of struct field unless you give it an explicit JSON tag
-		Cleaned_body string `json:"cleaned_body"`
-	}
 	cleaned := CleanedBody(params.Body)
-	respBody := returnVals{
-		Cleaned_body: cleaned,
+	chirp, err := cfg.dbQueries.CreateChirp(req.Context(), database.CreateChirpParams{cleaned, params.User_id})
+	if err != nil {
+		log.Printf("Error creating user: %s", err)
+		type returnVals struct {
+			// the key will be the name of struct field unless you give it an explicit JSON tag
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
 	}
-	responseJSON(resp, 200, respBody)
+	respBody := Chirp{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserID:    chirp.UserID,
+	}
+	responseJSON(resp, 201, respBody)
 }
 
 type User struct {
@@ -209,7 +231,8 @@ func main() {
 	serveMux.HandleFunc("GET /api/healthz", handlerFunc)
 	serveMux.HandleFunc("GET /admin/metrics", apiCfg.handlerNRequests)
 	serveMux.HandleFunc("POST /admin/reset", apiCfg.handlerResetRequests)
-	serveMux.HandleFunc("POST /api/validate_chirp", handlerChirp)
+	//serveMux.HandleFunc("POST /api/validate_chirp", handlerChirp)
+	serveMux.HandleFunc("POST /api/chirps", apiCfg.handlerChirps)
 	serveMux.HandleFunc("POST /api/users", apiCfg.handlerNewUser)
 	serveMux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(".")))))
 	serverStruct := http.Server{
