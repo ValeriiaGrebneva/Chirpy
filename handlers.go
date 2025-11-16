@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ValeriiaGrebneva/Chirpy/internal/auth"
 	"github.com/ValeriiaGrebneva/Chirpy/internal/database"
 	"github.com/google/uuid"
 )
@@ -23,7 +24,6 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 }
 
 func (cfg *apiConfig) handlerNRequests(resp http.ResponseWriter, req *http.Request) {
-	//resp.Write([]byte(fmt.Sprintf("Hits: %v", cfg.fileserverHits.Load())))
 	resp.Header().Set("Content-Type", "text/html")
 	resp.Write([]byte(fmt.Sprintf(`
 		<html>
@@ -87,8 +87,6 @@ type Chirp struct {
 
 func (cfg *apiConfig) handlerChirps(resp http.ResponseWriter, req *http.Request) {
 	type parameters struct {
-		// these tags indicate how the keys in the JSON should be mapped to the struct fields
-		// the struct fields must be exported (start with a capital letter) if you want them parsed
 		Body    string    `json:"body"`
 		User_id uuid.UUID `json:"user_id"`
 	}
@@ -97,11 +95,8 @@ func (cfg *apiConfig) handlerChirps(resp http.ResponseWriter, req *http.Request)
 	params := parameters{}
 	err := decoder.Decode(&params)
 	if err != nil {
-		// an error will be thrown if the JSON is invalid or has the wrong types
-		// any missing fields will simply have their values in the struct set to their zero value
 		log.Printf("Error decoding parameters: %s", err)
 		type returnVals struct {
-			// the key will be the name of struct field unless you give it an explicit JSON tag
 			Error string `json:"error"`
 		}
 		respBody := returnVals{
@@ -113,7 +108,6 @@ func (cfg *apiConfig) handlerChirps(resp http.ResponseWriter, req *http.Request)
 
 	if len(params.Body) > 140 {
 		type returnVals struct {
-			// the key will be the name of struct field unless you give it an explicit JSON tag
 			Error string `json:"error"`
 		}
 		respBody := returnVals{
@@ -128,7 +122,6 @@ func (cfg *apiConfig) handlerChirps(resp http.ResponseWriter, req *http.Request)
 	if err != nil {
 		log.Printf("Error creating user: %s", err)
 		type returnVals struct {
-			// the key will be the name of struct field unless you give it an explicit JSON tag
 			Error string `json:"error"`
 		}
 		respBody := returnVals{
@@ -152,7 +145,6 @@ func (cfg *apiConfig) handlerGetChirps(resp http.ResponseWriter, req *http.Reque
 	if err != nil {
 		log.Printf("Error getting chirps: %s", err)
 		type returnVals struct {
-			// the key will be the name of struct field unless you give it an explicit JSON tag
 			Error string `json:"error"`
 		}
 		respBody := returnVals{
@@ -223,20 +215,16 @@ type User struct {
 
 func (cfg *apiConfig) handlerNewUser(resp http.ResponseWriter, req *http.Request) {
 	type parameters struct {
-		// these tags indicate how the keys in the JSON should be mapped to the struct fields
-		// the struct fields must be exported (start with a capital letter) if you want them parsed
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	decoder := json.NewDecoder(req.Body)
 	params := parameters{}
 	err := decoder.Decode(&params)
 	if err != nil {
-		// an error will be thrown if the JSON is invalid or has the wrong types
-		// any missing fields will simply have their values in the struct set to their zero value
 		log.Printf("Error decoding parameters: %s", err)
 		type returnVals struct {
-			// the key will be the name of struct field unless you give it an explicit JSON tag
 			Error string `json:"error"`
 		}
 		respBody := returnVals{
@@ -246,11 +234,35 @@ func (cfg *apiConfig) handlerNewUser(resp http.ResponseWriter, req *http.Request
 		return
 	}
 
-	user, err := cfg.dbQueries.CreateUser(req.Context(), sql.NullString{String: params.Email, Valid: true})
+	if params.Password == "" {
+		log.Printf("Password is not provided: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 401, respBody)
+		return
+	}
+
+	hash, err := auth.HashPassword(params.Password)
+	if err != nil {
+		log.Printf("Error hashing password: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+
+	user, err := cfg.dbQueries.CreateUser(req.Context(), database.CreateUserParams{sql.NullString{String: params.Email, Valid: true}, hash})
 	if err != nil {
 		log.Printf("Error creating user: %s", err)
 		type returnVals struct {
-			// the key will be the name of struct field unless you give it an explicit JSON tag
 			Error string `json:"error"`
 		}
 		respBody := returnVals{
@@ -266,4 +278,47 @@ func (cfg *apiConfig) handlerNewUser(resp http.ResponseWriter, req *http.Request
 		Email:     user.Email.String,
 	}
 	responseJSON(resp, 201, respBody)
+}
+
+func (cfg *apiConfig) handlerLogin(resp http.ResponseWriter, req *http.Request) {
+	type parameters struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	decoder := json.NewDecoder(req.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		log.Printf("Error decoding parameters: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+
+	user, err := cfg.dbQueries.GetUserByEmail(req.Context(), sql.NullString{String: params.Email, Valid: true})
+	hashCheck, _ := auth.CheckPasswordHash(params.Password, user.HashedPassword)
+	if err != nil || hashCheck == false {
+		log.Printf("Error: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 401, respBody)
+		return
+	}
+	respBody := User{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email.String,
+	}
+	responseJSON(resp, 200, respBody)
 }
