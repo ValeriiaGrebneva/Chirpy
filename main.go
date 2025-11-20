@@ -17,12 +17,15 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
 	platformAPI    string
+	keyJWT         string
 }
 
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
 	platform := os.Getenv("PLATFORM")
+	key := os.Getenv("KEY_JWT")
+
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		fmt.Println(err)
@@ -35,6 +38,7 @@ func main() {
 		fileserverHits: counter,
 		dbQueries:      dbQueriesNew,
 		platformAPI:    platform,
+		keyJWT:         key,
 	}
 	serveMux := http.NewServeMux()
 	serveMux.HandleFunc("GET /api/healthz", handlerFunc)

@@ -86,14 +86,40 @@ type Chirp struct {
 }
 
 func (cfg *apiConfig) handlerChirps(resp http.ResponseWriter, req *http.Request) {
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("Error getting JWT: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+
+	userID, err := auth.ValidateJWT(token, cfg.keyJWT)
+	if err != nil {
+		log.Printf("Error validating JWT: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 401, respBody)
+		return
+	}
+
 	type parameters struct {
 		Body    string    `json:"body"`
-		User_id uuid.UUID `json:"user_id"`
+		User_id uuid.UUID `json:"user_id"` //we don't need it, since user's ID is found through JWT
 	}
 
 	decoder := json.NewDecoder(req.Body)
 	params := parameters{}
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		log.Printf("Error decoding parameters: %s", err)
 		type returnVals struct {
@@ -118,7 +144,7 @@ func (cfg *apiConfig) handlerChirps(resp http.ResponseWriter, req *http.Request)
 	}
 
 	cleaned := CleanedBody(params.Body)
-	chirp, err := cfg.dbQueries.CreateChirp(req.Context(), database.CreateChirpParams{cleaned, params.User_id})
+	chirp, err := cfg.dbQueries.CreateChirp(req.Context(), database.CreateChirpParams{cleaned, userID})
 	if err != nil {
 		log.Printf("Error creating user: %s", err)
 		type returnVals struct {
@@ -211,6 +237,7 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+	Token     string    `json:"token"`
 }
 
 func (cfg *apiConfig) handlerNewUser(resp http.ResponseWriter, req *http.Request) {
@@ -282,8 +309,9 @@ func (cfg *apiConfig) handlerNewUser(resp http.ResponseWriter, req *http.Request
 
 func (cfg *apiConfig) handlerLogin(resp http.ResponseWriter, req *http.Request) {
 	type parameters struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email              string `json:"email"`
+		Password           string `json:"password"`
+		Expires_in_seconds int    `json:"expires_in_seconds"`
 	}
 
 	decoder := json.NewDecoder(req.Body)
@@ -314,11 +342,32 @@ func (cfg *apiConfig) handlerLogin(resp http.ResponseWriter, req *http.Request) 
 		responseJSON(resp, 401, respBody)
 		return
 	}
+
+	expiresIn, _ := time.ParseDuration("1h")
+	exp := params.Expires_in_seconds
+	if exp != 0 && exp < 3600 {
+		expiresIn, _ = time.ParseDuration(fmt.Sprint(exp))
+	}
+
+	signedToken, err := auth.MakeJWT(user.ID, cfg.keyJWT, expiresIn)
+	if err != nil {
+		log.Printf("Error making JWT: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+
 	respBody := User{
 		ID:        user.ID,
 		CreatedAt: user.CreatedAt,
 		UpdatedAt: user.UpdatedAt,
 		Email:     user.Email.String,
+		Token:     signedToken,
 	}
 	responseJSON(resp, 200, respBody)
 }

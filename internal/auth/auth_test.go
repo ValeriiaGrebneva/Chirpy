@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -119,6 +120,48 @@ func TestCreateAndCheckJWT(t *testing.T) {
 			_, err := ValidateJWT(test.jwt, test.password)
 			if (err != nil) != test.wantErr {
 				t.Errorf("ValidateJWT() error = %v, wantErr %v", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestCheckAuthorization(t *testing.T) {
+	//redo completely!
+	req1, _ := http.NewRequest("GET", "", nil)
+	req1.Header.Set("Authorization", "Bearer correct")
+
+	req2, _ := http.NewRequest("GET", "", nil)
+
+	req3, _ := http.NewRequest("GET", "", nil)
+	req3.Header.Set("Authorization", "Wrong")
+
+	tests := []struct {
+		name    string
+		header  http.Header
+		wantErr bool
+	}{
+		{
+			name:    "Correct header",
+			header:  req1.Header,
+			wantErr: false,
+		},
+		{
+			name:    "Non-existing header",
+			header:  req2.Header,
+			wantErr: true,
+		},
+		{
+			name:    "Wrong header",
+			header:  req3.Header,
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := GetBearerToken(test.header)
+			if (err != nil) != test.wantErr {
+				t.Errorf("GetBearerToken() error = %v, wantErr %v", err, test.wantErr)
 			}
 		})
 	}
