@@ -311,7 +311,6 @@ func (cfg *apiConfig) handlerLogin(resp http.ResponseWriter, req *http.Request) 
 	type parameters struct {
 		Email              string `json:"email"`
 		Password           string `json:"password"`
-		Expires_in_seconds int    `json:"expires_in_seconds"`
 	}
 
 	decoder := json.NewDecoder(req.Body)
@@ -343,13 +342,7 @@ func (cfg *apiConfig) handlerLogin(resp http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	expiresIn, _ := time.ParseDuration("1h")
-	exp := params.Expires_in_seconds
-	if exp != 0 && exp < 3600 {
-		expiresIn, _ = time.ParseDuration(fmt.Sprint(exp))
-	}
-
-	signedToken, err := auth.MakeJWT(user.ID, cfg.keyJWT, expiresIn)
+	signedToken, err := auth.MakeJWT(user.ID, cfg.keyJWT)
 	if err != nil {
 		log.Printf("Error making JWT: %s", err)
 		type returnVals struct {
