@@ -233,11 +233,12 @@ func (cfg *apiConfig) handlerGetChirp(resp http.ResponseWriter, req *http.Reques
 }
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-	Token     string    `json:"token"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
 }
 
 func (cfg *apiConfig) handlerNewUser(resp http.ResponseWriter, req *http.Request) {
@@ -309,8 +310,8 @@ func (cfg *apiConfig) handlerNewUser(resp http.ResponseWriter, req *http.Request
 
 func (cfg *apiConfig) handlerLogin(resp http.ResponseWriter, req *http.Request) {
 	type parameters struct {
-		Email              string `json:"email"`
-		Password           string `json:"password"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	decoder := json.NewDecoder(req.Body)
@@ -342,6 +343,35 @@ func (cfg *apiConfig) handlerLogin(resp http.ResponseWriter, req *http.Request) 
 		return
 	}
 
+	refresh, err := auth.MakeRefreshToken()
+	if err != nil {
+		log.Printf("Error making Refresh Token: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+
+	now := time.Now().UTC()
+	exp := time.ParseDuration("1440h")
+	expiration := now.Add(exp)
+	refreshToken, err := cfg.dbQueries.CreateRefreshToken(req.Context(), database.CreateRefreshTokenParams{refresh, user.ID, expiration})
+	if err != nil {
+		log.Printf("Error creating Refresh Token: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+
 	signedToken, err := auth.MakeJWT(user.ID, cfg.keyJWT)
 	if err != nil {
 		log.Printf("Error making JWT: %s", err)
@@ -356,11 +386,47 @@ func (cfg *apiConfig) handlerLogin(resp http.ResponseWriter, req *http.Request) 
 	}
 
 	respBody := User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email.String,
-		Token:     signedToken,
+		ID:           user.ID,
+		CreatedAt:    user.CreatedAt,
+		UpdatedAt:    user.UpdatedAt,
+		Email:        user.Email.String,
+		Token:        signedToken,
+		RefreshToken: refreshToken,
 	}
 	responseJSON(resp, 200, respBody)
+}
+
+func (cfg *apiConfig) handlerRefresh(resp http.ResponseWriter, req *http.Request) {
+	refreshToken, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("Error getting Bearer token: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 401, respBody)
+		return
+	}
+	//if token is expired
+
+	userID, err := cfg.dbQueries.GetUserFromRefreshToken(req.Context(), refreshToken)
+	//if err != nil
+
+	//should expire in 1 hour - check
+	signedToken, err := auth.MakeJWT(user.ID, cfg.keyJWT)
+	if err != nil {
+		log.Printf("Error making JWT: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+
+	//return code 200 and access token string
 }
