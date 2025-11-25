@@ -409,7 +409,19 @@ func (cfg *apiConfig) handlerRefresh(resp http.ResponseWriter, req *http.Request
 		responseJSON(resp, 401, respBody)
 		return
 	}
-	//if token is expired
+
+	expiration, err := cfg.dbQueries.GetExpirationFromRefreshToken(req.Context(), refreshToken)
+	if err != nil || expiration.Before(time.Now().UTC()) {
+		log.Printf("Refresh token doesn't exist or expired")
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 401, respBody)
+		return
+	}
 
 	userID, err := cfg.dbQueries.GetUserFromRefreshToken(req.Context(), refreshToken)
 	//if err != nil
