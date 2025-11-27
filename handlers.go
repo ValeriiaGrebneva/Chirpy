@@ -357,7 +357,7 @@ func (cfg *apiConfig) handlerLogin(resp http.ResponseWriter, req *http.Request) 
 	}
 
 	now := time.Now().UTC()
-	exp := time.ParseDuration("1440h")
+	exp, _ := time.ParseDuration("1440h")
 	expiration := now.Add(exp)
 	refreshToken, err := cfg.dbQueries.CreateRefreshToken(req.Context(), database.CreateRefreshTokenParams{refresh, user.ID, expiration})
 	if err != nil {
@@ -391,7 +391,7 @@ func (cfg *apiConfig) handlerLogin(resp http.ResponseWriter, req *http.Request) 
 		UpdatedAt:    user.UpdatedAt,
 		Email:        user.Email.String,
 		Token:        signedToken,
-		RefreshToken: refreshToken,
+		RefreshToken: refreshToken.Token,
 	}
 	responseJSON(resp, 200, respBody)
 }
@@ -411,7 +411,7 @@ func (cfg *apiConfig) handlerRefresh(resp http.ResponseWriter, req *http.Request
 	}
 
 	expiration, err := cfg.dbQueries.GetExpirationFromRefreshToken(req.Context(), refreshToken)
-	if err != nil || expiration.Before(time.Now().UTC()) {
+	if err != nil || expiration.RevokedAt.Valid || expiration.ExpiresAt.Before(time.Now().UTC()) {
 		log.Printf("Refresh token doesn't exist or expired")
 		type returnVals struct {
 			Error string `json:"error"`
@@ -424,10 +424,19 @@ func (cfg *apiConfig) handlerRefresh(resp http.ResponseWriter, req *http.Request
 	}
 
 	userID, err := cfg.dbQueries.GetUserFromRefreshToken(req.Context(), refreshToken)
-	//if err != nil
+	if err != nil {
+		log.Printf("Error getting User from Refresh token: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
 
-	//should expire in 1 hour - check
-	signedToken, err := auth.MakeJWT(user.ID, cfg.keyJWT)
+	signedToken, err := auth.MakeJWT(userID, cfg.keyJWT)
 	if err != nil {
 		log.Printf("Error making JWT: %s", err)
 		type returnVals struct {
@@ -440,5 +449,38 @@ func (cfg *apiConfig) handlerRefresh(resp http.ResponseWriter, req *http.Request
 		return
 	}
 
-	//return code 200 and access token string
+	respBody := User{
+		Token: signedToken,
+	}
+	responseJSON(resp, 200, respBody)
+}
+
+func (cfg *apiConfig) handlerRevoke(resp http.ResponseWriter, req *http.Request) {
+	refreshToken, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("Error getting Bearer token: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 401, respBody)
+		return
+	}
+
+	err = cfg.dbQueries.RevokeRefreshToken(req.Context(), refreshToken)
+	if err != nil {
+		log.Printf("Error revoking Refresh token: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+
+	resp.WriteHeader(204)
 }
