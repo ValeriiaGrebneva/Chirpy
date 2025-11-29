@@ -44,14 +44,18 @@ func main() {
 	serveMux.HandleFunc("GET /api/healthz", handlerFunc)
 	serveMux.HandleFunc("GET /admin/metrics", apiCfg.handlerNRequests)
 	serveMux.HandleFunc("POST /admin/reset", apiCfg.handlerResetRequests)
+
 	serveMux.HandleFunc("POST /api/chirps", apiCfg.handlerChirps)
 	serveMux.HandleFunc("GET /api/chirps", apiCfg.handlerGetChirps)
 	serveMux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerGetChirp)
+	serveMux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.handlerDeleteChirp)
+
 	serveMux.HandleFunc("POST /api/users", apiCfg.handlerNewUser)
 	serveMux.HandleFunc("POST /api/login", apiCfg.handlerLogin)
 	serveMux.HandleFunc("POST /api/refresh", apiCfg.handlerRefresh)
 	serveMux.HandleFunc("POST /api/revoke", apiCfg.handlerRevoke)
 	serveMux.HandleFunc("PUT /api/users", apiCfg.handlerUpdateUser)
+
 	serveMux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(".")))))
 	serverStruct := http.Server{
 		Addr:    ":8080",
