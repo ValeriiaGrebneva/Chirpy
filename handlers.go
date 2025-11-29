@@ -484,3 +484,97 @@ func (cfg *apiConfig) handlerRevoke(resp http.ResponseWriter, req *http.Request)
 
 	resp.WriteHeader(204)
 }
+
+func (cfg *apiConfig) handlerUpdateUser(resp http.ResponseWriter, req *http.Request) {
+	type parameters struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	accessToken, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("Error getting Bearer token: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 401, respBody)
+		return
+	}
+
+	userID, err := auth.ValidateJWT(accessToken, cfg.keyJWT)
+	if err != nil {
+		log.Printf("Error validating JWT: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 401, respBody)
+		return
+	}
+
+	decoder := json.NewDecoder(req.Body)
+	params := parameters{}
+	err = decoder.Decode(&params)
+	if err != nil {
+		log.Printf("Error decoding parameters: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+
+	if params.Password == "" {
+		log.Printf("Password is not provided: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+
+	hash, err := auth.HashPassword(params.Password)
+	if err != nil {
+		log.Printf("Error hashing password: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+
+	user, err := cfg.dbQueries.UpdateEmailPassword(req.Context(), database.UpdateEmailPasswordParams{userID, sql.NullString{String: params.Email, Valid: true}, hash})
+	if err != nil {
+		log.Printf("Error updating User: %s", err)
+		type returnVals struct {
+			Error string `json:"error"`
+		}
+		respBody := returnVals{
+			Error: "Something went wrong",
+		}
+		responseJSON(resp, 500, respBody)
+		return
+	}
+
+	respBody := User{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email.String,
+	}
+	responseJSON(resp, 200, respBody)
+}
