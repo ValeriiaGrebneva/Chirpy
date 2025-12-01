@@ -239,6 +239,7 @@ type User struct {
 	Email        string    `json:"email"`
 	Token        string    `json:"token"`
 	RefreshToken string    `json:"refresh_token"`
+	IsChirpyRed  bool      `json:"is_chirpy_red"`
 }
 
 func (cfg *apiConfig) handlerNewUser(resp http.ResponseWriter, req *http.Request) {
@@ -300,10 +301,11 @@ func (cfg *apiConfig) handlerNewUser(resp http.ResponseWriter, req *http.Request
 		return
 	}
 	respBody := User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email.String,
+		ID:          user.ID,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
+		Email:       user.Email.String,
+		IsChirpyRed: user.IsChirpyRed,
 	}
 	responseJSON(resp, 201, respBody)
 }
@@ -392,6 +394,7 @@ func (cfg *apiConfig) handlerLogin(resp http.ResponseWriter, req *http.Request) 
 		Email:        user.Email.String,
 		Token:        signedToken,
 		RefreshToken: refreshToken.Token,
+		IsChirpyRed:  user.IsChirpyRed,
 	}
 	responseJSON(resp, 200, respBody)
 }
@@ -571,10 +574,11 @@ func (cfg *apiConfig) handlerUpdateUser(resp http.ResponseWriter, req *http.Requ
 	}
 
 	respBody := User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email.String,
+		ID:          user.ID,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
+		Email:       user.Email.String,
+		IsChirpyRed: user.IsChirpyRed,
 	}
 	responseJSON(resp, 200, respBody)
 }
@@ -618,6 +622,45 @@ func (cfg *apiConfig) handlerDeleteChirp(resp http.ResponseWriter, req *http.Req
 	if err != nil {
 		log.Printf("Error deleting the chirp: %s", err)
 		resp.WriteHeader(500)
+		return
+	}
+
+	resp.WriteHeader(204)
+}
+
+func (cfg *apiConfig) handlerChirpyRed(resp http.ResponseWriter, req *http.Request) {
+	type parameters struct {
+		Event string `json:"event"`
+		Data  struct {
+			UserID string `json:"user_id"`
+		} `json:"data"`
+	}
+
+	decoder := json.NewDecoder(req.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		log.Printf("Error decoding parameters: %s", err)
+		resp.WriteHeader(500)
+		return
+	}
+
+	if params.Event != "user.upgraded" {
+		resp.WriteHeader(204)
+		return
+	}
+
+	userUUID, err := uuid.Parse(params.Data.UserID)
+	if err != nil {
+		log.Printf("Error parsing UserID to UUID: %s", err)
+		resp.WriteHeader(404)
+		return
+	}
+
+	_, err = cfg.dbQueries.UpdateChirpyRed(req.Context(), userUUID)
+	if err != nil {
+		log.Printf("Error upgrading user: %s", err)
+		resp.WriteHeader(404)
 		return
 	}
 
