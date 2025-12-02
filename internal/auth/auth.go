@@ -86,3 +86,12 @@ func MakeRefreshToken() (string, error) {
 	encodedStr := hex.EncodeToString(key)
 	return encodedStr, nil
 }
+
+func GetAPIKey(headers http.Header) (string, error) {
+	authString := headers.Get("Authorization")
+	if authString == "" || strings.HasPrefix(authString, "ApiKey ") == false {
+		return "", errors.New("Token doesn't exist in Header")
+	}
+	polkaAPI := strings.Replace(authString, "ApiKey ", "", 1)
+	return polkaAPI, nil
+}

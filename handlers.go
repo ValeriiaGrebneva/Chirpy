@@ -629,6 +629,13 @@ func (cfg *apiConfig) handlerDeleteChirp(resp http.ResponseWriter, req *http.Req
 }
 
 func (cfg *apiConfig) handlerChirpyRed(resp http.ResponseWriter, req *http.Request) {
+	polkaAPI, err := auth.GetAPIKey(req.Header)
+	if err != nil || polkaAPI != cfg.keyPolka {
+		log.Printf("Error getting Polka API key: %s", err)
+		resp.WriteHeader(401)
+		return
+	}
+
 	type parameters struct {
 		Event string `json:"event"`
 		Data  struct {
@@ -638,7 +645,7 @@ func (cfg *apiConfig) handlerChirpyRed(resp http.ResponseWriter, req *http.Reque
 
 	decoder := json.NewDecoder(req.Body)
 	params := parameters{}
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		log.Printf("Error decoding parameters: %s", err)
 		resp.WriteHeader(500)
