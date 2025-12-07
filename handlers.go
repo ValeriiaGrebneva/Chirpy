@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -167,17 +168,49 @@ func (cfg *apiConfig) handlerChirps(resp http.ResponseWriter, req *http.Request)
 }
 
 func (cfg *apiConfig) handlerGetChirps(resp http.ResponseWriter, req *http.Request) {
-	chirps, err := cfg.dbQueries.GetChirps(req.Context())
-	if err != nil {
-		log.Printf("Error getting chirps: %s", err)
-		type returnVals struct {
-			Error string `json:"error"`
+	authorID := req.URL.Query().Get("author_id")
+
+	chirps := []database.Chirp{}
+	var err error
+
+	if authorID == "" {
+		chirps, err = cfg.dbQueries.GetChirps(req.Context())
+		if err != nil {
+			log.Printf("Error getting chirps: %s", err)
+			type returnVals struct {
+				Error string `json:"error"`
+			}
+			respBody := returnVals{
+				Error: "Something went wrong",
+			}
+			responseJSON(resp, 500, respBody)
+			return
 		}
-		respBody := returnVals{
-			Error: "Something went wrong",
+	} else {
+		authorUUID, err := uuid.Parse(authorID)
+		if err != nil {
+			log.Printf("Error parsing to UUID: %s", err)
+			type returnVals struct {
+				Error string `json:"error"`
+			}
+			respBody := returnVals{
+				Error: "Something went wrong",
+			}
+			responseJSON(resp, 500, respBody)
+			return
 		}
-		responseJSON(resp, 500, respBody)
-		return
+		chirps, err = cfg.dbQueries.GetChirpsAuthor(req.Context(), authorUUID)
+		if err != nil {
+			log.Printf("Error getting chirps: %s", err)
+			type returnVals struct {
+				Error string `json:"error"`
+			}
+			respBody := returnVals{
+				Error: "Something went wrong",
+			}
+			responseJSON(resp, 500, respBody)
+			return
+		}
 	}
 
 	chirpsResponse := make([]Chirp, len(chirps))
@@ -191,6 +224,12 @@ func (cfg *apiConfig) handlerGetChirps(resp http.ResponseWriter, req *http.Reque
 		}
 		chirpsResponse[i] = respBody
 	}
+
+	orderChirps := req.URL.Query().Get("sort")
+	if orderChirps == "desc" {
+		sort.Slice(chirpsResponse, func(i, j int) bool { return chirpsResponse[j].CreatedAt.Before(chirpsResponse[i].CreatedAt) })
+	}
+
 	responseJSON(resp, 200, chirpsResponse)
 }
 
