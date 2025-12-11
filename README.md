@@ -43,7 +43,15 @@
 
     go build -o out && ./out
 
+### Endpoints:
 
+The website will be available through the link _http://localhost:8080/app/_
+
+The available endpoints (_http://localhost:8080/..._):
+
+1. GET _.../api/healthz_ - returns 200 status code if the server is running;
+
+2. 
 
 ##
 
