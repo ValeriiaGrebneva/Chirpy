@@ -1,3 +1,7 @@
+# "Chirpy" project - web server on a local machine.
+
+This HTTP server is written in Go with use of Postgres database. The goal was to do a Twitter-like social network with Users and Chirps. 
+
 ### What you will need for this application to work:
 
 * Use a command line
